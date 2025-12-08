@@ -73,7 +73,12 @@ XAI_API_KEY=your_grok_api_key
 1. Create a new Supabase project
 2. Go to the SQL Editor
 3. Run the contents of `supabase-schema.sql`
-4. Enable Authentication in your Supabase dashboard
+4. Configure Authentication:
+   - Go to **Auth > Providers > Email**
+   - Toggle off **Confirm email** (for easier testing)
+   - Go to **Auth > URL Configuration**
+   - Set **Site URL** to your Vercel URL
+   - Add your Vercel URL to **Redirect URLs**
 
 ## Architecture
 
