@@ -15,6 +15,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import Auth from './components/Auth';
+import AIDirectory from './components/AIDirectory';
 import MarkdownRenderer from './components/MarkdownRenderer';
 import {
   onAuthStateChange,
@@ -22,13 +23,15 @@ import {
   getCurrentUser,
   getUserProfile,
   getPersonalAI,
+  getAIById,
   updatePersonalAI,
   getConversations,
   createConversation,
   deleteConversation,
   getMessages,
   addMessage,
-  updateConversation
+  updateConversation,
+  useInviteLink
 } from './utils/supabase';
 
 // --- Design System ---
@@ -68,11 +71,15 @@ export default function SomaApp() {
   // UI state
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [directoryOpen, setDirectoryOpen] = useState(false);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   // AI settings
   const [selectedProvider, setSelectedProvider] = useState('auto');
+
+  // External AI chat state
+  const [targetAI, setTargetAI] = useState(null); // The external AI being chatted with
 
   // Refs
   const messagesEndRef = useRef(null);
@@ -129,26 +136,76 @@ export default function SomaApp() {
   // Load messages when conversation changes
   useEffect(() => {
     if (activeConversationId) {
+      // Find the conversation to check if it has a target_ai_id
+      const convo = conversations.find(c => c.id === activeConversationId);
+      if (convo?.target_ai_id) {
+        // Load the target AI for external conversations
+        getAIById(convo.target_ai_id).then(ai => setTargetAI(ai));
+      } else {
+        setTargetAI(null);
+      }
+
       getMessages(activeConversationId).then(msgs => {
         setMessages(msgs || []);
       });
     }
-  }, [activeConversationId]);
+  }, [activeConversationId, conversations]);
+
+  // Check for invite code in URL on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const inviteCode = params.get('invite');
+    if (inviteCode) {
+      // Store for use after signup
+      sessionStorage.setItem('pendingInvite', inviteCode);
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Handle new chat
+  // Handle new chat (with own AI)
   const handleNewChat = async () => {
     if (!user) return;
 
-    const newConvo = await createConversation(user.id, 'New Chat');
+    const newConvo = await createConversation(user.id, 'New Chat', 'personal');
     if (newConvo) {
       setConversations(prev => [newConvo, ...prev]);
       setActiveConversationId(newConvo.id);
       setMessages([]);
+      setTargetAI(null);
+      inputRef.current?.focus();
+    }
+  };
+
+  // Handle chat with external AI (from directory)
+  const handleChatWithAI = async (ai) => {
+    if (!user) return;
+
+    // Check if we already have a conversation with this AI
+    const existingConvo = conversations.find(c => c.target_ai_id === ai.id);
+    if (existingConvo) {
+      setActiveConversationId(existingConvo.id);
+      setTargetAI(ai);
+      return;
+    }
+
+    // Create new conversation with external AI
+    const newConvo = await createConversation(
+      user.id,
+      `Chat with ${ai.name}`,
+      'external_ai',
+      ai.id
+    );
+    if (newConvo) {
+      setConversations(prev => [newConvo, ...prev]);
+      setActiveConversationId(newConvo.id);
+      setMessages([]);
+      setTargetAI(ai);
       inputRef.current?.focus();
     }
   };
@@ -207,6 +264,10 @@ export default function SomaApp() {
     }
 
     try {
+      // Determine which AI to use (own AI or target external AI)
+      const activeAI = targetAI || personalAI;
+      const systemPrompt = activeAI.system_prompt || `You are ${activeAI.name}, a helpful personal AI assistant.`;
+
       // Call AI API
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -216,8 +277,8 @@ export default function SomaApp() {
             role: m.sender_type === 'user' ? 'user' : 'assistant',
             content: m.content
           })),
-          system: personalAI.system_prompt || `You are ${personalAI.name}, a helpful personal AI assistant.`,
-          provider: selectedProvider,
+          system: systemPrompt,
+          provider: activeAI.preferred_provider || selectedProvider,
           model: null // Let the API choose
         })
       });
@@ -235,7 +296,7 @@ export default function SomaApp() {
         id: 'temp-' + Date.now(),
         conversation_id: convoId,
         sender_type: 'ai',
-        sender_id: personalAI.id,
+        sender_id: activeAI.id,
         content: '',
         created_at: new Date().toISOString()
       };
@@ -269,8 +330,8 @@ export default function SomaApp() {
 
       // Save final AI message to DB
       if (aiContent) {
-        const savedAiMsg = await addMessage(convoId, 'ai', personalAI.id, aiContent, {
-          provider: selectedProvider
+        const savedAiMsg = await addMessage(convoId, 'ai', activeAI.id, aiContent, {
+          provider: activeAI.preferred_provider || selectedProvider
         });
         if (savedAiMsg) {
           setMessages(prev =>
@@ -406,8 +467,22 @@ export default function SomaApp() {
           </button>
 
           <div className="flex-1">
-            <h1 className="text-lg font-semibold text-[#2D2D2A]">Soma</h1>
+            <h1 className="text-lg font-semibold text-[#2D2D2A]">
+              {targetAI ? `Chatting with ${targetAI.name}` : 'Soma'}
+            </h1>
+            {targetAI && (
+              <p className="text-xs text-[#666]">by {targetAI.users?.display_name}</p>
+            )}
           </div>
+
+          {/* AI Directory Button */}
+          <button
+            onClick={() => setDirectoryOpen(true)}
+            className="p-2 hover:bg-[#F4F4F2] rounded-lg transition-colors"
+            title="AI Network"
+          >
+            <Users className="w-5 h-5 text-[#2D2D2A]" />
+          </button>
 
           {/* Provider Selector */}
           <select
@@ -602,6 +677,14 @@ export default function SomaApp() {
           </div>
         </div>
       )}
+
+      {/* AI Directory Modal */}
+      <AIDirectory
+        isOpen={directoryOpen}
+        onClose={() => setDirectoryOpen(false)}
+        currentUserId={user?.id}
+        onChatWithAI={handleChatWithAI}
+      />
     </div>
   );
 }

@@ -120,19 +120,41 @@ export const updatePersonalAI = async (aiId, updates) => {
   return data;
 };
 
-export const getPublicAIs = async () => {
+export const getPublicAIs = async (excludeUserId = null) => {
   if (!supabase) return [];
+
+  let query = supabase
+    .from('personal_ais')
+    .select(`
+      *,
+      users(id, display_name, avatar_url)
+    `)
+    .eq('is_discoverable', true);
+
+  if (excludeUserId) {
+    query = query.neq('user_id', excludeUserId);
+  }
+
+  const { data, error } = await query;
+
+  if (error) console.warn('Failed to get public AIs:', error);
+  return data || [];
+};
+
+export const getAIById = async (aiId) => {
+  if (!supabase) return null;
 
   const { data, error } = await supabase
     .from('personal_ais')
     .select(`
       *,
-      users(display_name, avatar_url)
+      users(id, display_name, avatar_url)
     `)
-    .eq('is_discoverable', true);
+    .eq('id', aiId)
+    .single();
 
-  if (error) console.warn('Failed to get public AIs:', error);
-  return data || [];
+  if (error) console.warn('Failed to get AI:', error);
+  return data;
 };
 
 // ============================================
@@ -152,16 +174,22 @@ export const getConversations = async (userId) => {
   return data || [];
 };
 
-export const createConversation = async (ownerId, title = 'New Chat', type = 'personal') => {
+export const createConversation = async (ownerId, title = 'New Chat', type = 'personal', targetAiId = null) => {
   if (!supabase) return null;
+
+  const insertData = {
+    owner_id: ownerId,
+    title,
+    conversation_type: type
+  };
+
+  if (targetAiId) {
+    insertData.target_ai_id = targetAiId;
+  }
 
   const { data, error } = await supabase
     .from('conversations')
-    .insert({
-      owner_id: ownerId,
-      title,
-      conversation_type: type
-    })
+    .insert(insertData)
     .select()
     .single();
 
@@ -415,4 +443,105 @@ export const subscribeToAIMessages = (aiId, callback) => {
     .subscribe();
 
   return subscription;
+};
+
+// ============================================
+// INVITE LINKS
+// ============================================
+
+export const createInviteLink = async (userId, expiresInDays = null, maxUses = null) => {
+  if (!supabase) return null;
+
+  const code = Math.random().toString(36).substring(2, 10).toUpperCase();
+
+  const insertData = {
+    code,
+    created_by: userId
+  };
+
+  if (expiresInDays) {
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + expiresInDays);
+    insertData.expires_at = expiresAt.toISOString();
+  }
+
+  if (maxUses) {
+    insertData.uses_remaining = maxUses;
+  }
+
+  const { data, error } = await supabase
+    .from('invite_links')
+    .insert(insertData)
+    .select()
+    .single();
+
+  if (error) console.warn('Failed to create invite link:', error);
+  return data;
+};
+
+export const getInviteLink = async (code) => {
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from('invite_links')
+    .select('*')
+    .eq('code', code)
+    .single();
+
+  if (error) return null;
+
+  // Check if expired
+  if (data.expires_at && new Date(data.expires_at) < new Date()) {
+    return null;
+  }
+
+  // Check if uses exhausted
+  if (data.uses_remaining !== null && data.uses_remaining <= 0) {
+    return null;
+  }
+
+  return data;
+};
+
+export const useInviteLink = async (code) => {
+  if (!supabase) return false;
+
+  const link = await getInviteLink(code);
+  if (!link) return false;
+
+  // Decrement uses if limited
+  if (link.uses_remaining !== null) {
+    const { error } = await supabase
+      .from('invite_links')
+      .update({ uses_remaining: link.uses_remaining - 1 })
+      .eq('id', link.id);
+
+    if (error) return false;
+  }
+
+  return true;
+};
+
+export const getMyInviteLinks = async (userId) => {
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from('invite_links')
+    .select('*')
+    .eq('created_by', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) console.warn('Failed to get invite links:', error);
+  return data || [];
+};
+
+export const deleteInviteLink = async (linkId) => {
+  if (!supabase) return false;
+
+  const { error } = await supabase
+    .from('invite_links')
+    .delete()
+    .eq('id', linkId);
+
+  return !error;
 };
