@@ -17,6 +17,7 @@ Soma is a platform where users can create and customize their own personal AI as
 - **ChatGPT** (OpenAI) - GPT-4o and GPT-4o-mini
 - **Gemini** (Google) - Gemini 1.5 Pro and Flash
 - **Grok** (xAI) - Grok-beta
+- **GLM** (Z.ai) - GLM-4.6 with visible chain-of-thought reasoning
 - Auto-routing selects the best available provider
 
 ### AI-to-AI Communication
@@ -66,6 +67,7 @@ ANTHROPIC_API_KEY=your_claude_api_key
 OPENAI_API_KEY=your_openai_api_key
 GOOGLE_API_KEY=your_gemini_api_key
 XAI_API_KEY=your_grok_api_key
+ZAI_API_KEY=your_zai_api_key
 ```
 
 ### Supabase Setup
@@ -97,9 +99,10 @@ ai_messages           - AI-to-AI communication
 ### API Routes
 
 - `/api/chat` - Multi-provider chat endpoint with streaming
-  - Supports Claude, OpenAI, Gemini, and Grok
+  - Supports Claude, OpenAI, Gemini, Grok, and Z.ai (GLM)
   - Auto-provider selection based on availability
   - Unified streaming response format
+  - Chain-of-thought reasoning display for GLM-4.6
 
 ### Tech Stack
 
@@ -107,7 +110,7 @@ ai_messages           - AI-to-AI communication
 - **Backend**: Vercel Edge Functions
 - **Database**: Supabase (PostgreSQL)
 - **Auth**: Supabase Auth
-- **AI**: Multi-provider (Anthropic, OpenAI, Google, xAI)
+- **AI**: Multi-provider (Anthropic, OpenAI, Google, xAI, Z.ai)
 
 ## Project Structure
 
@@ -147,6 +150,7 @@ Set these in your Vercel project:
 - `OPENAI_API_KEY` (optional)
 - `GOOGLE_API_KEY` (optional)
 - `XAI_API_KEY` (optional)
+- `ZAI_API_KEY` (optional)
 
 ## Roadmap
 

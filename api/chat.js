@@ -29,6 +29,12 @@ const PROVIDERS = {
       default: 'grok-beta',
       fast: 'grok-beta'
     }
+  },
+  zai: {
+    models: {
+      default: 'glm-4.6',
+      fast: 'glm-4.6'
+    }
   }
 };
 
@@ -59,11 +65,12 @@ const PRICING = {
 // Auto-select best provider based on availability
 function selectProvider(requestedProvider) {
   if (requestedProvider === 'auto') {
-    // Priority: Claude > OpenAI > Gemini > Grok
+    // Priority: Claude > OpenAI > Gemini > Grok > Z.ai
     if (process.env.ANTHROPIC_API_KEY) return 'claude';
     if (process.env.OPENAI_API_KEY) return 'openai';
     if (process.env.GOOGLE_API_KEY) return 'gemini';
     if (process.env.XAI_API_KEY) return 'grok';
+    if (process.env.ZAI_API_KEY) return 'zai';
     return 'claude'; // fallback
   }
   return requestedProvider;
@@ -196,6 +203,31 @@ async function handleGrok(messages, system, model) {
   return response.body;
 }
 
+// Z.ai handler (GLM)
+async function handleZai(messages, system, model) {
+  const apiKey = process.env.ZAI_API_KEY;
+
+  const formattedMessages = system
+    ? [{ role: 'system', content: system }, ...messages]
+    : messages;
+
+  const response = await fetch('https://api.z.ai/api/paas/v4/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: model || PROVIDERS.zai.models.default,
+      messages: formattedMessages,
+      max_tokens: 8192,
+      stream: true
+    })
+  });
+
+  return response.body;
+}
+
 export default async function handler(req) {
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -214,7 +246,8 @@ export default async function handler(req) {
       claude: 'ANTHROPIC_API_KEY',
       openai: 'OPENAI_API_KEY',
       gemini: 'GOOGLE_API_KEY',
-      grok: 'XAI_API_KEY'
+      grok: 'XAI_API_KEY',
+      zai: 'ZAI_API_KEY'
     };
 
     if (!process.env[keyMap[provider]]) {
@@ -294,11 +327,13 @@ export default async function handler(req) {
       });
     }
 
-    // Handle OpenAI-compatible APIs (OpenAI, Grok)
-    if (provider === 'openai' || provider === 'grok') {
+    // Handle OpenAI-compatible APIs (OpenAI, Grok, Z.ai)
+    if (provider === 'openai' || provider === 'grok' || provider === 'zai') {
       const responseStream = provider === 'openai'
         ? await handleOpenAI(messages, system, model)
-        : await handleGrok(messages, system, model);
+        : provider === 'grok'
+          ? await handleGrok(messages, system, model)
+          : await handleZai(messages, system, model);
 
       const reader = responseStream.getReader();
       const decoder = new TextDecoder();
@@ -319,9 +354,16 @@ export default async function handler(req) {
 
                 try {
                   const parsed = JSON.parse(data);
-                  const content = parsed.choices?.[0]?.delta?.content;
-                  if (content) {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'text', content, provider })}\n\n`));
+                  const delta = parsed.choices?.[0]?.delta;
+
+                  // Handle Z.ai reasoning content (similar to Anthropic's extended thinking)
+                  if (provider === 'zai' && delta?.reasoning_content) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'thinking', content: delta.reasoning_content, provider })}\n\n`));
+                  }
+
+                  // Handle regular content
+                  if (delta?.content) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'text', content: delta.content, provider })}\n\n`));
                   }
                 } catch (e) {
                   // Ignore parse errors

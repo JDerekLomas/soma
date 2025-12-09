@@ -292,6 +292,7 @@ export default function SomaApp() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let aiContent = '';
+      let thinkingContent = '';
       let aiMsgId = null;
 
       // Add placeholder AI message
@@ -301,6 +302,7 @@ export default function SomaApp() {
         sender_type: 'ai',
         sender_id: activeAI.id,
         content: '',
+        thinking: '',
         created_at: new Date().toISOString()
       };
       setMessages(prev => [...prev, tempAiMsg]);
@@ -316,7 +318,14 @@ export default function SomaApp() {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6));
-              if (data.type === 'text') {
+              if (data.type === 'thinking') {
+                thinkingContent += data.content;
+                setMessages(prev =>
+                  prev.map(m =>
+                    m.id === tempAiMsg.id ? { ...m, thinking: thinkingContent } : m
+                  )
+                );
+              } else if (data.type === 'text') {
                 aiContent += data.content;
                 setMessages(prev =>
                   prev.map(m =>
@@ -555,7 +564,19 @@ export default function SomaApp() {
                     {msg.sender_type === 'user' ? (
                       <p className="whitespace-pre-wrap">{msg.content}</p>
                     ) : (
-                      <MarkdownRenderer content={msg.content} />
+                      <>
+                        {msg.thinking && (
+                          <details className="mb-3 text-sm">
+                            <summary className="cursor-pointer text-gray-500 hover:text-gray-700 font-medium">
+                              💭 Thinking...
+                            </summary>
+                            <div className="mt-2 p-3 bg-gray-50 rounded-lg text-gray-600 whitespace-pre-wrap text-xs max-h-48 overflow-y-auto">
+                              {msg.thinking}
+                            </div>
+                          </details>
+                        )}
+                        <MarkdownRenderer content={msg.content} />
+                      </>
                     )}
                   </div>
                   {msg.sender_type === 'user' && (
