@@ -81,6 +81,9 @@ export default function SomaApp() {
   // External AI chat state
   const [targetAI, setTargetAI] = useState(null); // The external AI being chatted with
 
+  // Usage tracking
+  const [lastUsage, setLastUsage] = useState(null);
+
   // Refs
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -315,6 +318,16 @@ export default function SomaApp() {
               const data = JSON.parse(line.slice(6));
               if (data.type === 'text') {
                 aiContent += data.content;
+                setMessages(prev =>
+                  prev.map(m =>
+                    m.id === tempAiMsg.id ? { ...m, content: aiContent } : m
+                  )
+                );
+              } else if (data.type === 'usage') {
+                setLastUsage(data.usage);
+              } else if (data.type === 'error') {
+                console.error('API Error:', data.error);
+                aiContent = `Error: ${data.error}`;
                 setMessages(prev =>
                   prev.map(m =>
                     m.id === tempAiMsg.id ? { ...m, content: aiContent } : m
@@ -559,6 +572,30 @@ export default function SomaApp() {
 
         {/* Input Area */}
         <div className="p-4 border-t border-[#E8E6E1] bg-white">
+          {/* Usage stats */}
+          {lastUsage && (
+            <div className="max-w-3xl mx-auto mb-2 flex items-center justify-center gap-4 text-xs text-[#999]">
+              <span title="Input tokens">
+                📥 {lastUsage.input_tokens?.toLocaleString() || 0}
+                {lastUsage.cache_read_input_tokens > 0 && (
+                  <span className="text-green-600" title="Cached tokens read">
+                    {' '}(+{lastUsage.cache_read_input_tokens?.toLocaleString()} cached)
+                  </span>
+                )}
+              </span>
+              <span title="Output tokens">📤 {lastUsage.output_tokens?.toLocaleString() || 0}</span>
+              {lastUsage.cost && (
+                <>
+                  <span title="Total cost">💰 ${lastUsage.cost.total}</span>
+                  {parseFloat(lastUsage.cost.savings) > 0 && (
+                    <span className="text-green-600" title="Savings from cache">
+                      ✨ Saved ${lastUsage.cost.savings}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           <div className="max-w-3xl mx-auto flex gap-3">
             <textarea
               ref={inputRef}
